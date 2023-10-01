@@ -6,3 +6,13 @@ We can characterize the behavior of a single weak regressor inside an ensemble a
 
 ## Approach
 Several approaches to go from semantic space to behavior space have been tested for evolutionary ensemble machine learning techniques, and so far the most successful was kernel-principal component analysis (kPCA) with Cosine Similarity as the kernel. This series of experiments is to test whether the cosine-similarity-kPCA behavior space can also be useful to analyze the behavior of other state-of-the-art ensemble algorithms, such as catboost, lightgbm, xgboost, and the more classical Random Forest. 
+
+## Open questions
+
+### Clearing the trees
+Question: What happens if we just pick the trees on the edges/vertices of the convex hull in behavior space? Does the performance of the ensemble go down?
+Answer: Yes, from preliminary experiments with Random Forest it looks like it does (from R2=0.56 to R2=0.51 on test). However, we go from 100 to 13 trees.
+
+### Boosting in behavior space
+Question: What happens if we apply Boosting, but instead of increasing the weights, we target a point in behavior space, using the inverse transformation to go back to semantic space? In other words, we are targeting a specific error value for each sample. The point to target could be the one on the other side of [0.0,0.0] in the behavior space. Still, it's a bit complicated because it does require to take into account the cumulated prediction of the trees created at every step.
+Answer:

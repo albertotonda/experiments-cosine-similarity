@@ -30,6 +30,9 @@ def create_kpca_reference_points(n_samples : int) :
         - a reference point that has error +/- 0.5 (and 0.0 elsewhere)
         - a reference point that has error +/- 1.0 for that sample (and 0.0 elsewhere)
     And then a single reference point with error 0.0 for all sample
+    
+    WARNING: this function is useless, can be replaced by randomly generating
+    points using numpy's random number generators ^_^;
 
     Parameters
     ----------
@@ -170,6 +173,7 @@ if __name__ == "__main__" :
         ax.set_xlabel("kPCA dimension 1")
         ax.set_ylabel("kPCA dimension 2")
         
+        plt.tight_layout()
         plt.savefig(os.path.join(task_folder, "kpca_random_forest_predictors.png"), dpi=300)
         plt.close(fig)
         
@@ -196,6 +200,7 @@ if __name__ == "__main__" :
         ax.set_xlabel("kPCA dimension 1")
         ax.set_ylabel("kPCA dimension 2")
         
+        plt.tight_layout()
         plt.savefig(os.path.join(task_folder, "kpca_gradient_boosting_predictors.png"), dpi=300)
         plt.close(fig)
         
@@ -220,7 +225,26 @@ if __name__ == "__main__" :
         ax.set_xlabel("kPCA dimension 1")
         ax.set_ylabel("kPCA dimension 2")
         
+        plt.tight_layout()
         plt.savefig(os.path.join(task_folder, "kpca_gradient_boosting_predictors_arrows.png"), dpi=300)
-        plt.close(fig)        
+        plt.close(fig)
+        
+        # and another plot! This time, let's put all points together and see if it is still readable
+        fig = plt.figure(figsize=(10,8))
+        ax = fig.add_subplot(111)
+        
+        # this [0::10,0] means 'starting from 0, go to '' (end), taking one point every 10'
+        ax.scatter(rp_pca[0::10,0], rp_pca[0::10,1], marker='.', alpha=0.3, label="Reference points (randomly)")
+        ax.scatter(rf_behavior_points[:,0], rf_behavior_points[:,1], marker='.', alpha=0.3, color='green', label="Random Forest predictors")
+        ax.scatter(gb_behavior_points[:,0], gb_behavior_points[:,1], marker='.', alpha=0.3, color='orange', label="Gradient Boosting predictors")
+        
+        ax.set_title("Comparison of the different predictors in behavior space")
+        ax.set_xlabel("kPCA dimension 1")
+        ax.set_ylabel("kPCA dimension 2")
+        ax.legend(loc='best')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(task_folder, "kpca_all.png"), dpi=300)
+        plt.close(fig)
         
         

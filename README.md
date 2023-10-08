@@ -11,8 +11,11 @@ Several approaches to go from semantic space to behavior space have been tested 
 
 ### Clearing the trees
 Question: What happens if we just pick the trees on the edges/vertices of the convex hull in behavior space? Does the performance of the ensemble go down?
-Answer: Yes, from preliminary experiments with Random Forest it looks like it does (from R2=0.56 to R2=0.51 on test). However, we go from 100 to 13 trees.
+Answer: Yes, from preliminary experiments with Random Forest it looks like it does (from R2=0.56 to R2=0.51 on test). However, we go from 100 to 13 trees. Still, it's not very impressive, because taking 13 random trees in the ensemble gives a performance that is non-separable...
 
 ### Boosting in behavior space
 Question: What happens if we apply Boosting, but instead of increasing the weights, we target a point in behavior space, using the inverse transformation to go back to semantic space? In other words, we are targeting a specific error value for each sample. The point to target could be the one on the other side of [0.0,0.0] in the behavior space. Still, it's a bit complicated because it does require to take into account the cumulated prediction of the trees created at every step.
 Answer:
+
+### Systematic experiments
+Question: Do Random Forest's trees always cover a larger area of the cosine-similarity kPCA behavioral space? I should try on a large variety of different problems. We can check the area of the convex hull, in two dimensions it should be easy to compute.

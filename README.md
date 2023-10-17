@@ -9,6 +9,14 @@ Several approaches to go from semantic space to behavior space have been tested 
 
 ## Open questions
 
+### Algoritmo di generazione di ensemble basato su Graph Neural Networks?
+
+### Visualize trajectory of a neural network regressor
+
+### Visualize behavioral space for test points
+
+### Kernel density estimation delle distribuzioni (vedi seaborn)
+
 ### Clearing the trees
 Question: What happens if we just pick the trees on the edges/vertices of the convex hull in behavior space? Does the performance of the ensemble go down?
 Answer: Yes, from preliminary experiments with Random Forest it looks like it does (from R2=0.56 to R2=0.51 on test). However, we go from 100 to 13 trees. Still, it's not very impressive, because taking 13 random trees in the ensemble gives a performance that is non-separable...

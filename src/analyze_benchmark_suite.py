@@ -14,15 +14,10 @@ if __name__ == "__main__" :
     
     # load OpenML-CTR23 benchmark suite
     suite = openml.study.get_suite(353)
-    
-    # prepare data structure that will be later converted to a CSV
-    df_dictionary = {
-        "dataset_id" : [], "dataset_name" : [],
-        "n_samples" : [], "n_features" : [],
-        "categorical_features" : []
-                     }
-    
+
+    # filter all OpenML tasks, taking only those with an id in the suite    
     tasks = openml.tasks.list_tasks(output_format="dataframe")
     tasks_suite = tasks.query("tid in @suite.tasks")
     
+    # save selection to CSV
     tasks_suite.to_csv("OpenML-CTR23_overview.csv", index=False)

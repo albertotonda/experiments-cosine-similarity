@@ -3,3 +3,4 @@
 src/.ipynb_checkpoints/experiments_cosine_similarity_openml_ctr23-checkpoint.ipynb
 *.pk
 src/.ipynb_checkpoints/experiments_boosting-checkpoint.ipynb
+*.csv

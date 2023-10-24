@@ -147,7 +147,7 @@ def get_points_in_semantic_space_from_regressor(regressor, X, y_true) :
              
     return semantic_points
 
-def create_area_plots(convex_hulls, colors, folder, figure_name) :
+def create_area_plots(convex_hulls, zero_error_point, colors, folder, figure_title, figure_name) :
     """
     Create plots in behavior space, starting from the information contained
     inside the dictionary of ConvexHull instances
@@ -166,12 +166,13 @@ def create_area_plots(convex_hulls, colors, folder, figure_name) :
                    marker='.', color=color, alpha=0.5, label=regressor_name)
         ax.add_patch(patch)
         
-    # also put a reference point in [0.0, 0.0], corresponding to no errors
-    ax.scatter([0.0], [0.0], marker='x', color='red', label="Reference point, no errors")
+    # also put a reference point, corresponding to no errors in semantic space
+    ax.scatter(zero_error_point[0,0], zero_error_point[0,1], marker='x', color='red', label="Reference point, no errors")
     
     ax.legend(loc='best')
     ax.set_xlabel("kPCA dimension 1")
     ax.set_ylabel("kPCA dimensions 2")
+    ax.set_title(figure_title)
     
     plt.savefig(os.path.join(folder, figure_name), dpi=300)
     plt.close(fig)
@@ -201,7 +202,8 @@ def assess_all_regressors_finished_on_fold(regressors, fold_index, folder_task) 
     """
     all_regressors_finished_on_fold = True
     
-    for regressor_name in regressors :
+    for regressor in regressors :
+        regressor_name = regressor.__name__
         is_regressor_finished = assess_regressor_finished_on_fold(regressor_name, fold_index, folder_task)
         all_regressors_finished_on_fold = all_regressors_finished_on_fold and is_regressor_finished
         
@@ -231,6 +233,55 @@ def assess_all_regressors_finished_on_task(regressors, n_folds, folder_task) :
         all_regressors_finished = all_regressors_finished and is_regressor_finished
     
     return all_regressors_finished
+
+def create_transformation_semantic_to_behavioral(X, y, random_seed=42, mean=0.0, stdev=0.1, max_depth=3, method="random") :
+    """
+    This function creates the transformation (a dimensionality reduction) that
+    goes from the high-dimensional semantic space (errors on each sample) to
+    the 2D behavioral space. We are going to use a KernelPCA with cosine similarity
+    as the transformation, because empirically it looks like it works the best for
+    our objective. The main difficulty is to obtain enough points in the semantic 
+    space to compute a meaningful transformation.
+    
+    Several methods are possible to obtain points in semantic space:
+        - "random": just samples a Gaussian distribution for each dimension
+        in the semantic space, a lot of times. Fast, but it completely ignores
+        specificities of the dataset (e.g. it would return the same points for
+        two datasets with the same sample size, given the same random seed). Even
+        if this method looks simple, there are still some hyperparameters, for
+        example the mean and the stdev of the Gaussian distribution.
+        - "forest": train a large number of decision trees in the same way of
+        a random forest, and look at their errors. The issue here is that there
+        are extra parameters tied to the trees, for example max depth.
+    """
+    
+    reference_points = None
+    
+    if method == "random" :
+        # easy: create points sampling a standard normal, where the number of
+        # columns is the number of samples in the original dataset, and the number
+        # of samples is again the number of samples (square matrix)
+        reference_points = np_prng.normal(mean, stdev, size=(X.shape[0], X.shape[0]))
+        
+    elif method == "forest" :
+        # train a random forest, imposing a given max depth to its trees
+        regressor = RandomForestRegressor(n_estimators=X.shape[0], 
+                                          max_depth=max_depth,
+                                          n_jobs=max(multiprocessing.cpu_count() - 1, 1), 
+                                          random_state=random_seed+10)
+        regressor.fit(X, y)
+        
+        # as each estimator in the random forest is trained independently, we
+        # can use their predictions on each sample as reference points
+        reference_points = np.zeros((X.shape[0], X.shape[0]))
+        
+        for i, estimator in enumerate(regressor.estimators_) :
+            reference_points[i,:] = estimator.predict(X)
+    
+    transformation = KernelPCA(n_components=2, kernel='cosine', random_state=random_seed)
+    transformation.fit(reference_points)
+    
+    return transformation
     
 
 if __name__ == "__main__" :
@@ -274,8 +325,26 @@ if __name__ == "__main__" :
             regressor_name = regressor_class.__name__
             dict_results[regressor_name + "_" + metric_name] = []
     
+    print("Loading OpenML metadata...")
+    
     # load OpenML-CTR23 benchmark suite
     suite = openml.study.get_suite(353)
+    
+    # also load a database with all OpenML tasks, just to get some information
+    all_tasks = openml.tasks.list_tasks(output_format="dataframe")
+    df_tasks_suite = all_tasks.query("tid in @suite.tasks")
+    
+    # we should probably create all random seeds here, and then fetch them later
+    # because if we generate random seeds on the fly, this clashes with skipping
+    # datasets or folds for which we already have all the results
+    random_seeds = {}
+    for task_id in suite.tasks :
+        random_seeds[task_id] = []
+        task = openml.tasks.get_task(task_id)
+        n_repeats, n_folds, n_samples = task.get_split_dimensions()
+        
+        for i in range(0, n_folds) :
+            random_seeds[task_id].append(r_prng.randint(1, 10000))
     
     # iterate over tasks
     for task_index, task_id in enumerate(suite.tasks) :
@@ -283,14 +352,21 @@ if __name__ == "__main__" :
         
         task = openml.tasks.get_task(task_id)
         X_df, y = task.get_X_and_y(dataset_format='dataframe')
+        task_dataset_name = df_tasks_suite[df_tasks_suite["tid"] == task_id]["name"].values[0]
         
         print("X.shape =", X_df.shape)
         print("y.shape =", y.shape)
         
-        # we have to work on the dataset, for example to take into account
+        # we have to pre-process the dataset, for example transform
         # categorical variables and the like
-        # TODO before that, we also have to take into account the missing values,
-        # that appear in at least a couple of tasks in this benchmark suite
+        # before that, we also have to take into account missing values,
+        # that appear in at least a couple of tasks in this benchmark suite; from
+        # a preliminary analysis, it looks like that in each case there are just
+        # a few columns with a LOT (52%-100%) of missing values; thus, we can
+        # safely remove the columns, running inference in this case does not look appropriate
+        X_df = X_df.dropna(axis='columns')
+        
+        # identify categorical features, replace them with numerical values (integers)
         categorical_columns = [ c for c in X_df.columns if c not in X_df._get_numeric_data().columns ]
         print("Categorical columns identified:", categorical_columns)
         
@@ -319,7 +395,7 @@ if __name__ == "__main__" :
         # just evaluate tasks on 1 repeat and 10 folds
         
         # data structure to record performance and other stuff on the folds
-        dict_results_fold = {}
+        dict_results_fold = {"random_seed" : []}
         for metric_name in [ m for m in performance_metrics.keys() ] + ["area_behavioral_space"] :
             for regressor_class in regressors :
                 regressor_name = regressor_class.__name__
@@ -327,7 +403,7 @@ if __name__ == "__main__" :
                 
         # folder where we are going to store all results
         is_task_already_complete = False
-        folder_task = os.path.join(folder_main, str(task_id))
+        folder_task = os.path.join(folder_main, str(task_id) + "-" + task_dataset_name)
         if not os.path.exists(folder_task) :
             os.makedirs(folder_task)
         else :
@@ -346,8 +422,8 @@ if __name__ == "__main__" :
                 
                 print("Working on fold %d..." % index_fold)
                 
-                # a random seed for this fold
-                random_seed_fold = r_prng.randint(1, 10000)
+                # get random seed for this fold
+                random_seed_fold = random_seeds[task_id][index_fold]
                 
                 # get indices for train and test
                 train_indices, test_indices = task.get_train_test_split_indices(repeat=0, fold=index_fold, sample=0)
@@ -355,97 +431,123 @@ if __name__ == "__main__" :
                 X_train, X_test = X[train_indices], X[test_indices]
                 y_train, y_test = y[train_indices], y[test_indices]
                 
-                # create behavioral space; we have to create it here, because the
-                # shape of the semantic space depends on the number of samples in the
-                # training set, that might change from fold to fold
-                # TODO computing the kPCA takes quite a lot of time, so we could
+                # computing the kPCA takes quite a lot of time, so we could
                 # save some computations by assessing whether ALL regressors have
                 # already been processed on this fold for ALL metrics
-                print("Creating behavioral space...")
-                reference_points = np_prng.standard_normal(size=(X_train.shape[0], X_train.shape[0]))
-                kpca = KernelPCA(n_components=2, kernel='cosine', random_state=random_seed)
-                kpca.fit(reference_points)
+                # we introduce the check here, because we need to extract the
+                # random seed from the pseudo-random number generators
+                are_all_regressor_finished_on_fold = assess_all_regressors_finished_on_fold(regressors, index_fold, folder_task)
                 
-                # create data structure to store the convex hull instances, so that
-                # later they can be used to plot what is happening in behavior space
-                convex_hulls_fold = {}
+                # if all regressors are finished on this fold, we can just skip;
+                # we only need to re-load the dictionary from the CSV
+                if are_all_regressor_finished_on_fold :
+                    
+                    print("All regressors are finished on fold %d, skipping to the next fold..." % index_fold)
+                    dict_results_fold = pd.read_csv(os.path.join(folder_task, "%s_folds.csv" % str(task_id))).to_dict(orient='list') # orient here is just to build a structure key -> list
+                    print(dict_results_fold)
                 
-                # normalization should not be necessary for decision-tree based ensembles
-                # so, for the moment let's skip it
-                
-                for regressor_class in regressors :
+                else :
+                    # if not all regressors are done, we just re-compute everything
+                    # add random seed to the data
+                    dict_results_fold["random_seed"].append(random_seed_fold)
                     
-                    # initialize regressor
-                    regressor = initialize_regressor(regressor_class, random_seed=random_seed_fold)
-                    regressor_name = regressor_class.__name__
+                    # create behavioral space; we have to create it here, because the
+                    # shape of the semantic space depends on the number of samples in the
+                    # training set, that might change from fold to fold
                     
-                    # before starting the whole thing, we check if the regressor
-                    # has been already applied to this fold; we can evalute this by
-                    # assessing whether *ALL* columns that start with the regressor_name
-                    # have at least as many elements as the current fold
-                    # TODO all this is really cute, but it does not work, because
-                    # we also need to recompute the convex hulls...so, we need to first
-                    # save all the convex hulls as pickles
-                    regressor_data_already_processed = False # TODO change to True when the whole system works
-                    for key, values in dict_results_fold.items() :
-                        if key.startswith(regressor_name) and len(values) < index_fold + 1 :
-                            regressor_data_already_processed = False
+                    print("Creating behavioral space...")
+                    kpca = create_transformation_semantic_to_behavioral(X_train, y_train, method="forest", random_seed=random_seed_fold)
                     
-                    if not regressor_data_already_processed :
-                        print("Training regressor \"%s\" on fold %d..." % (regressor_name, index_fold))
-                        regressor.fit(X_train, y_train)
-                        
-                        y_train_pred = regressor.predict(X_train)
-                        y_test_pred = regressor.predict(X_test)
-                        
-                        # let's go over the metrics, BUT we have to take into account that the name
-                        # of the metric also tells us whether we should use training or test set
-                        for metric_name, metric in performance_metrics.items() :
-                            metric_name_regressor = regressor_name + "_" + metric_name
-                            metric_value = 0.0
-                            if metric_name.find("test") != -1 :
-                                metric_value = metric(y_test, y_test_pred)
-                            else :
-                                metric_value = metric(y_train, y_train_pred)
-                            dict_results_fold[metric_name_regressor].append(metric_value)
-                        
-                        # compute semantic points, translate to behavior points, compute area, maybe a plot
-                        print("Obtaining points in behavior space...")
-                        semantic_points = get_points_in_semantic_space_from_regressor(regressor, X_train, y_train)
-                        behavior_points = kpca.transform(semantic_points)
-                        
-                        # now that we have the points in behavior space, we can compute
-                        # their convex hull and obtain lots of interesting information
-                        # NOTE: 'volume' for a 2D convex hull corresponds to an area
-                        hull = ConvexHull(behavior_points)
-                        convex_hulls_fold[regressor_name] = [behavior_points, hull]
-                        
-                        dict_results_fold[regressor_name + "_area_behavioral_space"].append(hull.volume)
+                    # create data structure to store the convex hull instances, so that
+                    # later they can be used to plot what is happening in behavior space
+                    convex_hulls_fold = {}
                     
-                    else :
-                        print("Found all results for regressor \"%s\" on fold %d. Skipping..."
-                              % (regressor_name, index_fold))
+                    # normalization should not be necessary for decision-tree based ensembles
+                    # so, for the moment let's skip it
                     
-                # save results for the fold
-                df_fold = pd.DataFrame.from_dict(dict_results_fold)
-                df_fold.to_csv(os.path.join(folder_task, "%s_folds.csv" % str(task_id)), index=False)
-                
-                # also save pickles corresponding to the convex hulls AND behavior points
-                # for each regressor in this fold
-                for regressor_name, [behavior_points, hull] in convex_hulls_fold.items() :
-                    
-                    # save convex hull as pickle
-                    with open(os.path.join(folder_task, regressor_name + "_convex_hull_fold_%d.pk" % index_fold), "wb") as fp :
-                        pickle.dump(hull, fp)
+                    for regressor_class in regressors :
                         
-                    # save behavior points as csv, I guess
-                    df_dict_behavior_points = {"kPCA1" : behavior_points[:,0], "kPCA2" : behavior_points[:,1]}
-                    df_behavior_points = pd.DataFrame.from_dict(df_dict_behavior_points)
-                    df_behavior_points.to_csv(os.path.join(folder_task, regressor_name + "_behavior_points_fold_%d.csv" % index_fold), index=False)
-                
-                # also a few plots in behavior space
-                create_area_plots(convex_hulls_fold, colors, folder_task, "areas_behavior_space_fold_%d.png" % index_fold)
+                        # initialize regressor
+                        regressor = initialize_regressor(regressor_class, random_seed=random_seed_fold)
+                        regressor_name = regressor_class.__name__
+                        
+                        # before starting the whole thing, we check if the regressor
+                        # has been already applied to this fold; we can evalute this by
+                        # assessing whether *ALL* columns that start with the regressor_name
+                        # have at least as many elements as the current fold
+                        # TODO all this is really cute, but it does not work, because
+                        # we also need to recompute the convex hulls...so, we need to first
+                        # save all the convex hulls as pickles
+                        regressor_data_already_processed = False # TODO change to True when the whole system works
+                        for key, values in dict_results_fold.items() :
+                            if key.startswith(regressor_name) and len(values) < index_fold + 1 :
+                                regressor_data_already_processed = False
+                        
+                        if not regressor_data_already_processed :
+                            print("Training regressor \"%s\" on fold %d..." % (regressor_name, index_fold))
+                            regressor.fit(X_train, y_train)
+                            
+                            y_train_pred = regressor.predict(X_train)
+                            y_test_pred = regressor.predict(X_test)
+                            
+                            # let's go over the metrics, BUT we have to take into account that the name
+                            # of the metric also tells us whether we should use training or test set
+                            for metric_name, metric in performance_metrics.items() :
+                                metric_name_regressor = regressor_name + "_" + metric_name
+                                metric_value = 0.0
+                                if metric_name.find("test") != -1 :
+                                    metric_value = metric(y_test, y_test_pred)
+                                else :
+                                    metric_value = metric(y_train, y_train_pred)
+                                dict_results_fold[metric_name_regressor].append(metric_value)
+                            
+                            # compute semantic points, translate to behavior points, compute area, maybe a plot
+                            print("Obtaining points in behavior space...")
+                            semantic_points = get_points_in_semantic_space_from_regressor(regressor, X_train, y_train)
+                            behavior_points = kpca.transform(semantic_points)
+                            
+                            # now that we have the points in behavior space, we can compute
+                            # their convex hull and obtain lots of interesting information
+                            # NOTE: 'volume' for a 2D convex hull corresponds to an area
+                            hull = ConvexHull(behavior_points)
+                            convex_hulls_fold[regressor_name] = [behavior_points, hull]
+                            
+                            dict_results_fold[regressor_name + "_area_behavioral_space"].append(hull.volume)
+                        
+                        else :
+                            print("Found all results for regressor \"%s\" on fold %d. Skipping..."
+                                  % (regressor_name, index_fold))
+                        
+                    # save results for the fold
+                    df_fold = pd.DataFrame.from_dict(dict_results_fold)
+                    df_fold.to_csv(os.path.join(folder_task, "%s_folds.csv" % str(task_id)), index=False)
+                    
+                    # also save pickles corresponding to the convex hulls AND behavior points
+                    # for each regressor in this fold
+                    for regressor_name, [behavior_points, hull] in convex_hulls_fold.items() :
+                        
+                        # save convex hull as pickle
+                        with open(os.path.join(folder_task, regressor_name + "_convex_hull_fold_%d.pk" % index_fold), "wb") as fp :
+                            pickle.dump(hull, fp)
+                            
+                        # save behavior points as csv, I guess
+                        df_dict_behavior_points = {"kPCA1" : behavior_points[:,0], "kPCA2" : behavior_points[:,1]}
+                        df_behavior_points = pd.DataFrame.from_dict(df_dict_behavior_points)
+                        df_behavior_points.to_csv(os.path.join(folder_task, regressor_name + "_behavior_points_fold_%d.csv" % index_fold), index=False)
+                    
+                    # also a few plots in behavior space; but before that, we need
+                    # to obtain the behavior point corresponding to "zero errors"
+                    zero_error_point = kpca.transform(np.zeros((1, X_train.shape[0])))
+                    figure_title = "Behavioral space for %s, fold %d" % (str(task_id) + "-" + task_dataset_name, index_fold)
+                    create_area_plots(convex_hulls_fold, zero_error_point, colors, folder_task, figure_title, "areas_behavior_space_fold_%d.png" % index_fold)
         
+                    # end if all regressors are finished on fold
+                    
+                # end for each fold
+                
             else :
                 # if we end up here, the task is already complete
                 print("Task already complete, all files exist. Skipping to the next task...")
+                
+        # end for each task
+        print("Finished working on task")

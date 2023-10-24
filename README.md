@@ -7,6 +7,14 @@ We can characterize the behavior of a single weak regressor inside an ensemble a
 ## Approach
 Several approaches to go from semantic space to behavior space have been tested for evolutionary ensemble machine learning techniques, and so far the most successful was kernel-principal component analysis (kPCA) with Cosine Similarity as the kernel. This series of experiments is to test whether the cosine-similarity-kPCA behavior space can also be useful to analyze the behavior of other state-of-the-art ensemble algorithms, such as catboost, lightgbm, xgboost, and the more classical Random Forest. 
 
+## Notes
+The benchmark suite selected for the project is OpenML-CTR23. Only two datasets considered in the study have missing values: fps_benchmark and Moneyball.
+
+fps_benchmark has 3/44 columns with a lot of missing values: CpuDieSize (12960/24624, 52% missing), CpuNumberOfTransistors (12960/24624, 52% missing), GpuNumberOfComputeUnits (19152/24624, 77% missing), GpuNumberOfExecutionUnits (24624/24624, 100% missing!!!)
+Moneyball has 4/15 columns with A LOT OF missing values: RankSeason (988/1232, 80% missing), RankPlayoffs (988/1232, 80% missing), OOBP (812/1232, 80% missing), OSLG (812/1232, 80% missing)
+
+Since there are so many missing values, I think it makes sense to just ignore those columns.
+
 ## Open questions
 
 ### Algoritmo di generazione di ensemble basato su Graph Neural Networks?

@@ -34,6 +34,12 @@ def main() :
     best_regressors = {}
     best_tied_regressors = {}
     
+    smallest_areas = {}
+    smallest_tied_areas = {}
+    
+    largest_areas = {}
+    largest_tied_areas = {}
+    
     for subdirectory in subdirectories :
         
         # get name of the data set
@@ -47,7 +53,6 @@ def main() :
         
         # get all columns that end in "_R2_test" and the ones related to the area in behavioral space
         columns_r2_test = [c for c in df_experiment.columns if c.endswith("_R2_test")]
-        columns_area_behavioral = [c for c in df_experiment.columns if c.endswith("_area_behavioral_space")]
         regressor_names = [c.split("_")[0] for c in columns_r2_test]
         
         # some computation here, to get means and stdevs of performance
@@ -93,6 +98,22 @@ def main() :
         plt.savefig(os.path.join(root_directory, dataset_id + "-" + dataset_name + "-r2.png"), dpi=300)
         plt.close(fig)
         
+        # now, take a look at the area of each ensemble in the behavioral space
+        columns_area_behavioral = [c for c in df_experiment.columns if c.endswith("_area_behavioral_space")]
+        # some computation here, to get means and stdevs of performance
+        means = [np.mean(df_experiment[c].values) for c in columns_area_behavioral]
+        stdevs = [np.std(df_experiment[c].values) for c in columns_area_behavioral]
+        
+        sorted_regressors = sorted(list(zip(regressor_names, means)), key=lambda x : x[1])
+        print("For this experiment, the regressor with the smallest area in behavioral space is %s, mean A=%.4e" % 
+              (sorted_regressors[0][0], sorted_regressors[0][1]))
+        print("For this experiment, the regressor with the largest area in behavioral space is %s, mean A=%.4e" % 
+              (sorted_regressors[-1][0], sorted_regressors[-1][1]))
+        
+        column_best_regressor = sorted_regressors[0][0] + "_area_behavioral_space"
+        is_the_best_significant = True
+        equally_performing_regressors = []
+        # TODO finish this
         
         # add column, with just the name of the dataset
         df_experiment["dataset_name"] = [dataset_name] * df_experiment.shape[0]

@@ -152,7 +152,7 @@ def create_area_plots(convex_hulls, zero_error_point, colors, folder, figure_tit
     Create plots in behavior space, starting from the information contained
     inside the dictionary of ConvexHull instances
     """
-    sns.set_style()
+    sns.set_style('darkgrid')
     
     # let's start with one big figure, containing all areas
     fig = plt.figure(figsize=(10,8))

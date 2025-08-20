@@ -30,6 +30,7 @@ def main() :
     subdirectories = [os.path.join(root_directory, f) for f in os.listdir(root_directory) if os.path.isdir(os.path.join(root_directory, f))]
     print("Found a total of %d subdirectories, starting analysis..." % len(subdirectories))
     
+    # data structures to collect statistics
     list_of_dfs = []
     best_regressors = {}
     best_tied_regressors = {}
@@ -39,6 +40,10 @@ def main() :
     
     largest_areas = {}
     largest_tied_areas = {}
+    
+    # also, data structure that can be turned into a nice table, showing when
+    # the performance of an algorithm is significantly better than others
+    dict_performance = {"dataset" : [os.path.basename(s) for s in subdirectories]}
     
     for subdirectory in subdirectories :
         
@@ -54,6 +59,11 @@ def main() :
         # get all columns that end in "_R2_test" and the ones related to the area in behavioral space
         columns_r2_test = [c for c in df_experiment.columns if c.endswith("_R2_test")]
         regressor_names = [c.split("_")[0] for c in columns_r2_test]
+        
+        # add extra keys to the dataset (this should happen only once)
+        for regressor_name in regressor_names :
+            if regressor_name not in dict_performance.keys() :
+                dict_performance[regressor_name] = []
         
         # some computation here, to get means and stdevs of performance
         means = [np.mean(df_experiment[c].values) for c in columns_r2_test]
@@ -81,12 +91,27 @@ def main() :
             if sorted_regressors[0][0] not in best_regressors :
                 best_regressors[sorted_regressors[0][0]] = 0
             best_regressors[sorted_regressors[0][0]] += 1
+            
+            # also store the information in the data structure
+            for regressor_name in regressor_names :
+                if regressor_name == sorted_regressors[0][0] :
+                    dict_performance[regressor_name].append("++")
+                else :
+                    dict_performance[regressor_name].append("-")
+            
         else :
             print("But other regressors have unseparable performances...")
             for regressor in [sorted_regressors[0][0]] + equally_performing_regressors :
                 if regressor not in best_tied_regressors :
                     best_tied_regressors[regressor] = 0
                 best_tied_regressors[regressor] += 1
+                
+            # also store the information in the data structure
+            for regressor_name in regressor_names :
+                if regressor_name in [sorted_regressors[0][0]] + equally_performing_regressors :
+                    dict_performance[regressor_name].append("+")
+                else :
+                    dict_performance[regressor_name].append("-")
             
         # plot time! what about a nice figure with a barplot of the average performance in test?
         fig = plt.figure(figsize=(16,8))
@@ -110,9 +135,27 @@ def main() :
         print("For this experiment, the regressor with the largest area in behavioral space is %s, mean A=%.4e" % 
               (sorted_regressors[-1][0], sorted_regressors[-1][1]))
         
-        column_best_regressor = sorted_regressors[0][0] + "_area_behavioral_space"
-        is_the_best_significant = True
-        equally_performing_regressors = []
+        column_largest_regressor = sorted_regressors[0][0] + "_area_behavioral_space"
+        column_smallest_regressor = sorted_regressors[-1][0] + "_area_behavioral_space"
+        is_largest_significant = True
+        is_smallest_significant = True
+        equally_large = []
+        equally_small = []
+        
+        for i in range(1, len(sorted_regressors)) :
+            
+            column_other_regressor = sorted_regressors[i][0] + "_area_behavioral_space"
+            stat, p_value = ks_2samp(df_experiment[column_largest_regressor], df_experiment[column_other_regressor])
+            if p_value > p_value_threshold :
+                is_largest_significant = False
+                equally_large.append(sorted_regressors[i][0])
+            
+            column_other_regressor = sorted_regressors[-1-i][0] + "_area_behavioral_space"
+            stat, p_value = ks_2samp(df_experiment[column_smallest_regressor], df_experiment[column_other_regressor])
+            if p_value > p_value_threshold :
+                is_smallest_significant = False
+                equally_small.append(sorted_regressors[i][0])
+        
         # TODO finish this
         
         # add column, with just the name of the dataset
@@ -136,6 +179,10 @@ def main() :
     for key, value in best_tied_regressors.items() :
         print("Regressor \"%s\" is the best (tied with others) for %d/%d datasets" %
               (key, value, len(subdirectories))) 
+        
+    # save the data structure with the performance to file
+    df_performance = pd.DataFrame.from_dict(dict_performance)
+    df_performance.to_csv(os.path.join(root_directory, "performance_significance.csv"), index=False)
     
     return
 

@@ -276,7 +276,8 @@ def create_transformation_semantic_to_behavioral(X, y, random_seed=42, mean=0.0,
         reference_points = np.zeros((X.shape[0], X.shape[0]))
         
         for i, estimator in enumerate(regressor.estimators_) :
-            reference_points[i,:] = estimator.predict(X)
+            #reference_points[i,:] = estimator.predict(X) # this was a mistake, giving predictions, not errors
+            reference_points[i,:] = get_point_in_semantic_space(estimator, X, y)
     
     transformation = KernelPCA(n_components=2, kernel='cosine', random_state=random_seed)
     transformation.fit(reference_points)
@@ -308,7 +309,8 @@ if __name__ == "__main__" :
     r_prng = random.Random(random_seed) # pseudo-random number generator
     np_prng = np.random.default_rng(seed=random_seed) # same, but from numpy module
     
-    # create folder for the experiments
+    # create folder for the experiments; update it with date and time
+    folder_main = folder_main + "_" + str(pd.Timestamp.now().strftime("%Y_%m_%d-%H_%M_%S"))
     if not os.path.exists(folder_main) :
         os.makedirs(folder_main)
     
